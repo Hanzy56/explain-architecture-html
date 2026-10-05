@@ -1,0 +1,4 @@
+interface:
+  display_name: "業務とアーキテクチャをHTMLで説明"
+  short_description: "業務フローと実装をつなぐ説明HTMLと詳細構成図を作成する"
+  default_prompt: "$explain-architecture-html を使って、このプロジェクトの業務フローとアーキテクチャを分かりやすいHTMLにしてください。"

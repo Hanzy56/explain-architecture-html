@@ -1,0 +1,12 @@
+{
+  "archify": {
+    "url": "https://github.com/tt-a1i/archify.git",
+    "revision": "3c4e4a50b0ebba92ffc0859ae12f34d90de523ae",
+    "cli": "archify/bin/archify.mjs"
+  },
+  "answer-me-with-html": {
+    "url": "https://github.com/QingYunA/answer-me-with-html.git",
+    "revision": "9642ad61c2320536637c41abef831cd09d992bb7",
+    "cli": "skills/answer-me-with-html/scripts/am.mjs"
+  }
+}
