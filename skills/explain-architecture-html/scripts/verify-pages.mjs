@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { readPresentation } from "./presentation.mjs";
+import { verifyViewControls } from './verify-view-controls.mjs';
 
 const [outputPath, modulesPath, channel] = process.argv.slice(2);
 if (!outputPath)
@@ -41,7 +42,7 @@ const browser = await playwright.chromium.launch({
   ...(channel ? { channel } : {}),
 });
 try {
-  const context = await browser.newContext();
+  const context = await browser.newContext({ colorScheme: 'light' });
   await context.route(/^https?:/, (route) => {
     result.externalResourceRequests.push(route.request().url());
     return route.abort();
@@ -49,6 +50,7 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (error) => result.runtimeErrors.push(error.message));
   await page.goto(pathToFileURL(path.join(folder, mainFile)).href);
+  await page.waitForSelector('html[data-ah-ready="true"]');
   const normalizeNewlines = (text) => text.replace(/\r\n?/g, "\n").trim();
   check(
     normalizeNewlines(await page.locator("#am-source").inputValue()) ===
@@ -94,7 +96,7 @@ try {
   const card = page.locator("a.ah-detail-link");
   check((await card.count()) === 1, "Expected one main diagram card");
   check(
-    (await card.getAttribute("href")) === config.diagramHref,
+    new URL(await card.getAttribute('href')).pathname === new URL(config.diagramHref, page.url()).pathname,
     "Diagram card destination differs from configuration",
   );
   for (const width of [1440, 986, 790, 760, 552, 390]) {
@@ -103,7 +105,7 @@ try {
     const header = await page.locator(".am-head").boundingBox();
     const intro = await page.locator(".am-intro").boundingBox();
     const heading = await page.locator(".am-head h1").boundingBox();
-    const toolbar = await page.locator(".am-toolbar").boundingBox();
+    const toolbar = await page.locator(".ah-controls").boundingBox();
     check(
       Math.abs(header.width - intro.width) < 1,
       `Intro width restricted at ${width}px`,
@@ -138,19 +140,21 @@ try {
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('[data-am="mode"]').click();
+  await page.locator('#ah-display summary').click();
+  await page.locator('#ah-mode').selectOption('dark');
   check(
     (await page.getAttribute("html", "data-mode")) === "dark",
     "Dark-mode switch failed",
   );
   await card.screenshot({ path: path.join(evidence, "card-dark.png") });
-  await page.locator('[data-am="theme"]').click();
+  await page.locator('#ah-design').selectOption('blueprint');
   check(
     (await page.getAttribute("html", "data-theme")) !== "shadcn",
     "Theme switch failed",
   );
   await card.click();
   await page.waitForURL((url) => url.pathname.endsWith("/" + diagramFile));
+  await page.waitForSelector('html[data-ah-ready="true"]');
   const roles = JSON.parse(
     fs.readFileSync(path.join(folder, "module-guide.json"), "utf8"),
   );
@@ -217,6 +221,7 @@ try {
     await cdp.send("CSS.getPlatformFontsForNode", { nodeId: title.nodeId })
   ).fonts;
   await page.screenshot({ path: path.join(evidence, "diagram-focus.png") });
+  await verifyViewControls({ browser, page, folder, evidence, config, result, check });
   await page.setViewportSize({ width: 390, height: 844 });
   check(
     await page.evaluate(

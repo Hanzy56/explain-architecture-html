@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readPresentation, escapeHtml } from "./presentation.mjs";
+import { sharedControls } from "./viewer-controls.mjs";
 const [htmlPath, configPath] = process.argv.slice(2);
 if (!configPath)
   throw new Error(
@@ -8,6 +9,7 @@ if (!configPath)
   );
 const file = path.resolve(htmlPath);
 const config = readPresentation(configPath);
+const controls = sharedControls(config, 'explainer');
 let html = fs.readFileSync(file, "utf8");
 const presentation = `<style id="ah-explainer-presentation">
 .am-head { padding-right: 0; }
@@ -35,6 +37,14 @@ html = html.replace(
   "",
 );
 html = html.replace("</head>", presentation + "\n</head>");
+// Reapplying presentation must not duplicate the common header or its scripts.
+html = html.replace(/<(script|style) id="ah-view-[^"]+">[\s\S]*?<\/\1>\s*/g, '');
+html = html.replace(/<header class="ah-controls toolbar"[\s\S]*?<\/header>\s*/g, '');
+html = html.replace(/<html\b([^>]*)>/, (match, attrs) => '<html' + attrs.replace(/\sdata-ah-page="[^"]*"/g, '') + ' data-ah-page="explainer">');
+html = html.replace(/<div class="am-toolbar"[^>]*>/, '<div class="am-toolbar" hidden>');
+html = html.replace('</head>', controls.bootstrap + controls.style + '\n</head>');
+html = html.replace(/(<main\b[^>]*>)/, '$1\n' + controls.header);
+html = html.replace('</body>', controls.runtime + '\n</body>');
 html = html.replace(
   `<p><a href="${escapeHtml(config.diagramHref)}">${escapeHtml(config.linkTitle)}</a></p>`,
   `<p><a class="ah-detail-link" href="${escapeHtml(config.diagramHref)}"><span class="ah-detail-link-copy"><span class="ah-detail-link-kicker">${escapeHtml(config.linkKicker)}</span><strong>${escapeHtml(config.linkTitle)}</strong><span class="ah-detail-link-description">${escapeHtml(config.linkDescription)}</span></span><span class="ah-detail-link-arrow" aria-hidden="true">→</span></a></p>`,

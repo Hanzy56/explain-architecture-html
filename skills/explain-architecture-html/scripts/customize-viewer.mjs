@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { readPresentation } from "./presentation.mjs";
+import { sharedControls } from "./viewer-controls.mjs";
 
 const [toolPath, candidatePath, rolesPath, presentationPath] =
   process.argv.slice(2);
@@ -21,6 +22,7 @@ if (revision !== toolchain.archify.revision)
     "Unsupported Archify revision; update and verify the adapter before using another version.",
   );
 const presentation = readPresentation(presentationPath);
+const controls = sharedControls(presentation, 'diagram');
 const readOriginal = (file) =>
   execFileSync("git", ["-C", upstream, "show", `HEAD:${file}`], {
     encoding: "utf8",
@@ -90,8 +92,20 @@ template = replaceOnce(
 template = replaceOnce(
   template,
   "    <!-- Header -->",
-  `    <a class="ah-return" href="${escape(presentation.backHref)}">← 説明ページへ戻る</a>\n    <!-- Header -->`,
+  controls.header + '\n    <!-- Header -->',
 );
+
+template = replaceOnce(template, '</head>', controls.bootstrap + controls.style + '\n</head>');
+template = replaceOnce(template, '</body>', controls.runtime + '\n</body>');
+template = replaceOnce(template, '<div class="toolbar" role="toolbar"', '<div class="ah-native-controls" hidden role="toolbar"');
+template = replaceOnce(template, "var PRESETS = ['classic', 'signal-flow', 'blueprint', 'editorial'];", "var PRESETS = ['classic', 'blueprint'];");
+for (const preset of ['signal-flow', 'editorial']) {
+  const option = new RegExp(`<button\\b[^>]*data-preset-value="${preset}"[\\s\\S]*?<\\/button>`);
+  if (!option.test(template)) throw new Error(`Missing preset option: ${preset}`);
+  template = template.replace(option, '');
+}
+template = replaceOnce(template, 'apply(resolveInitial());', 'apply(window.AhView.effective());');
+template = replaceOnce(template, "if (urlOverride() || saved === 'light' || saved === 'dark') return;", "if (window.AhView.state.mode !== 'auto') return;");
 template = replaceOnce(
   template,
   "    <!-- ARCHIFY:SOURCE_EVIDENCE_DATA -->",
@@ -160,6 +174,13 @@ fs.writeFileSync(path.join(upstream, "archify/assets/template.html"), template);
 
 let i18n = readOriginal("archify/renderers/shared/i18n.mjs");
 const labels = {
+  "viewer.preset.classic.short": "標準",
+  "viewer.preset.blueprint": "図面",
+  "viewer.present.enter": "図に集中",
+  "viewer.present.enter.title": "図に集中 (F)",
+  "viewer.present.exit": "通常表示に戻る",
+  "viewer.present.exit.label": "通常表示に戻る",
+  "viewer.present.exit.title": "通常表示に戻る (F)",
   "viewer.passport.eyebrow": "モジュールの役割と接続",
   "viewer.passport.reach": "複数段先までの接続",
   "viewer.passport.upstream": "上流",
