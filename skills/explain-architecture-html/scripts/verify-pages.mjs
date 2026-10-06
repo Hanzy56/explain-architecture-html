@@ -147,10 +147,9 @@ try {
     "Dark-mode switch failed",
   );
   await card.screenshot({ path: path.join(evidence, "card-dark.png") });
-  await page.locator('#ah-design').selectOption('blueprint');
   check(
-    (await page.getAttribute("html", "data-theme")) !== "shadcn",
-    "Theme switch failed",
+    (await page.getAttribute("html", "data-theme")) === "shadcn" && await page.locator('#ah-design').count() === 0,
+    "Explanation should use standard design without a design selector",
   );
   await card.click();
   await page.waitForURL((url) => url.pathname.endsWith("/" + diagramFile));

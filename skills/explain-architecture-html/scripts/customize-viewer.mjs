@@ -98,12 +98,18 @@ template = replaceOnce(
 template = replaceOnce(template, '</head>', controls.bootstrap + controls.style + '\n</head>');
 template = replaceOnce(template, '</body>', controls.runtime + '\n</body>');
 template = replaceOnce(template, '<div class="toolbar" role="toolbar"', '<div class="ah-native-controls" hidden role="toolbar"');
-template = replaceOnce(template, "var PRESETS = ['classic', 'signal-flow', 'blueprint', 'editorial'];", "var PRESETS = ['classic', 'blueprint'];");
-for (const preset of ['signal-flow', 'editorial']) {
+template = replaceOnce(template, "var PRESETS = ['classic', 'signal-flow', 'blueprint', 'editorial'];", "var PRESETS = ['classic'];");
+for (const preset of ['signal-flow', 'blueprint', 'editorial']) {
   const option = new RegExp(`<button\\b[^>]*data-preset-value="${preset}"[\\s\\S]*?<\\/button>`);
   if (!option.test(template)) throw new Error(`Missing preset option: ${preset}`);
   template = template.replace(option, '');
 }
+template = replaceOnce(template, "      } else if (e.key === 's' || e.key === 'S') {\n        e.preventDefault();\n        Archify.preset.cycle();", '');
+template = replaceOnce(template, "          s: 'preset',\n", '');
+template = replaceOnce(template, "        if (action === 'preset') return Archify.preset.cycle();\n", '');
+template = replaceOnce(template, '<span><kbd>S</kbd> {{i18n:viewer.guide.shortcut.style}}</span>', '');
+template = replaceOnce(template, '<span class="preset-menu-shortcut"><kbd>S</kbd>{{i18n:viewer.preset.cycles}}</span>', '');
+template = replaceOnce(template, 'aria-keyshortcuts="S"', '');
 template = replaceOnce(template, 'apply(resolveInitial());', 'apply(window.AhView.effective());');
 template = replaceOnce(template, "if (urlOverride() || saved === 'light' || saved === 'dark') return;", "if (window.AhView.state.mode !== 'auto') return;");
 template = replaceOnce(

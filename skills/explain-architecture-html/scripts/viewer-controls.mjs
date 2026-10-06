@@ -5,29 +5,26 @@ function bootstrap(config) {
   const root = document.documentElement;
   root.setAttribute('data-ah-page', config.kind);
   const modes = ['auto', 'light', 'dark'];
-  const designs = ['standard', 'blueprint'];
   const params = new URLSearchParams(location.search);
   const key = 'ah-view:' + new URL('.', location.href).href + ':' + config.main + ':' + config.diagram;
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(key)) || {}; } catch (_) {}
   const legacyTheme = params.get('theme');
   const mode = params.get('viewMode') || (['light', 'dark'].includes(legacyTheme) ? legacyTheme : null) || saved.mode;
-  const design = params.get('viewDesign') || saved.design;
   const state = {
     mode: modes.includes(mode) ? mode : 'auto',
-    design: designs.includes(design) ? design : 'standard',
   };
   const system = matchMedia('(prefers-color-scheme: dark)');
   const effective = () => state.mode === 'auto' ? (system.matches ? 'dark' : 'light') : state.mode;
   function paint() {
     root.setAttribute('data-ah-mode', state.mode);
-    root.setAttribute('data-ah-design', state.design);
+    root.removeAttribute('data-ah-design');
     if (config.kind === 'diagram') {
       root.setAttribute('data-theme', effective());
-      root.setAttribute('data-preset', state.design === 'blueprint' ? 'blueprint' : 'classic');
+      root.setAttribute('data-preset', 'classic');
     } else {
       root.setAttribute('data-mode', state.mode);
-      root.setAttribute('data-theme', state.design === 'blueprint' ? 'blueprint' : 'shadcn');
+      root.setAttribute('data-theme', 'shadcn');
     }
   }
   function persist() {
@@ -36,19 +33,19 @@ function bootstrap(config) {
     try {
       const url = new URL(location.href);
       url.searchParams.set('viewMode', state.mode);
-      url.searchParams.set('viewDesign', state.design);
+      url.searchParams.delete('viewDesign');
       history.replaceState(null, '', url.href);
     } catch (_) {}
   }
   function set(next) {
     if (modes.includes(next.mode)) state.mode = next.mode;
-    if (designs.includes(next.design)) state.design = next.design;
     paint();
     persist();
     document.dispatchEvent(new Event('ah-view-change'));
   }
   window.AhView = { state, set, paint, effective };
   paint();
+  persist();
   const change = () => { paint(); document.dispatchEvent(new Event('ah-view-change')); };
   if (system.addEventListener) system.addEventListener('change', change);
   else system.addListener(change);
@@ -59,7 +56,6 @@ function bindControls(config) {
   const header = document.querySelector('.ah-controls');
   const settings = document.getElementById('ah-display');
   const mode = document.getElementById('ah-mode');
-  const design = document.getElementById('ah-design');
   const output = document.getElementById('ah-output');
   const present = document.getElementById('ah-present');
   const exit = document.getElementById('ah-exit');
@@ -101,7 +97,6 @@ function bindControls(config) {
   }, true);
   function sync() {
     mode.value = view.state.mode;
-    design.value = view.state.design;
     if (diagram) {
       const active = root.getAttribute('data-present') === 'true';
       exit.hidden = !active;
@@ -123,16 +118,12 @@ function bindControls(config) {
         const url = new URL(raw, location.href);
         if (new URL('.', url).href !== folder || !url.pathname.endsWith('.html')) return;
         url.searchParams.set('viewMode', view.state.mode);
-        url.searchParams.set('viewDesign', view.state.design);
+        url.searchParams.delete('viewDesign');
         link.href = url.href;
       } catch (_) {}
     });
   }
   mode.addEventListener('change', () => view.set({ mode: mode.value }));
-  design.addEventListener('change', () => {
-    view.set({ design: design.value });
-    if (diagram) api.preset.apply(design.value === 'blueprint' ? 'blueprint' : 'classic');
-  });
   if (diagram) {
     function toggleStage() {
       settings.open = false;
@@ -144,18 +135,15 @@ function bindControls(config) {
       settings.querySelector('summary').focus();
     });
     motion.addEventListener('click', () => api.motionGovernor.toggle());
-    // T/S/F shortcuts and guided actions still flow through upstream controllers.
+    // Theme and focus shortcuts still flow through upstream controllers.
     new MutationObserver(() => {
       const next = {};
       const theme = root.getAttribute('data-theme');
-      const preset = root.getAttribute('data-preset');
       if (['light', 'dark'].includes(theme) && theme !== view.effective()) next.mode = theme;
-      const nextDesign = preset === 'blueprint' ? 'blueprint' : 'standard';
-      if (nextDesign !== view.state.design) next.design = nextDesign;
       if (Object.keys(next).length) view.set(next);
       sync();
-    }).observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-preset', 'data-present', 'data-motion', 'data-motion-capable'] });
-    api.preset.apply(view.state.design === 'blueprint' ? 'blueprint' : 'classic');
+    }).observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-present', 'data-motion', 'data-motion-capable'] });
+    api.preset.apply('classic');
   } else {
     document.getElementById('ah-copy').addEventListener('click', () => {
       document.querySelector('[data-am="copy"]').click();
@@ -176,7 +164,7 @@ html[data-ah-page] .ah-controls {
   --ah-line: var(--line-2, var(--panel-border)); --ah-accent: var(--accent, var(--frontend-stroke));
   position: relative; inset: auto; z-index: 40; display: flex; flex-wrap: wrap;
   align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; margin: 0 0 20px; padding: 0 0 12px;
+  width: 100%; margin: 0 0 16px; padding: 0 0 8px;
   border-bottom: 1px solid var(--ah-line); color: var(--ah-ink);
   font: 14px/1.5 'Yu Gothic', Meiryo, 'Noto Sans JP', sans-serif;
   grid-column: 1 / -1; flex: none;
@@ -186,10 +174,11 @@ html[data-ah-page] .ah-controls {
 html[data-ah-page] .ah-controls nav a,
 html[data-ah-page] .ah-controls summary,
 html[data-ah-page] .ah-controls button {
-  position: relative; width: auto; min-height: 44px; margin: 0; padding: 9px 12px;
+  position: relative; display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; width: auto; min-height: 36px; margin: 0; padding: 6px 12px;
   border: 1px solid var(--ah-line); border-radius: 8px;
   color: var(--ah-ink); background: var(--ah-paper); font: inherit;
-  line-height: 1.5; text-decoration: none; cursor: pointer; letter-spacing: normal;
+  line-height: 20px; text-decoration: none; cursor: pointer; letter-spacing: normal;
 }
 html[data-ah-page] .ah-controls button::before,
 html[data-ah-page] .ah-controls button::after { content: none; }
@@ -206,11 +195,13 @@ html[data-ah-page] .ah-controls [hidden] { display: none !important; }
   box-shadow: 0 12px 32px #0002;
 }
 .ah-controls .ah-settings-panel label { display: grid; gap: 6px; font-weight: 600; }
-.ah-controls .ah-settings-panel select { min-height: 44px; width: 100%; padding: 8px; border: 1px solid var(--ah-line); border-radius: 6px; color: var(--ah-ink); background: var(--ah-paper); font: inherit; }
+.ah-controls .ah-settings-panel select { min-height: 36px; width: 100%; padding: 6px 8px; border: 1px solid var(--ah-line); border-radius: 6px; color: var(--ah-ink); background: var(--ah-paper); font: inherit; }
 html[data-ah-page] .ah-controls #btn-export { color: var(--ah-ink); }
 html[data-ah-page] .ah-controls .export-wrap { position: relative; }
-html[data-ah-page] .ah-controls .export-menu { top: calc(100% + 8px); width: min(360px, calc(100vw - 48px)); }
-html[data-ah-page] .ah-controls .export-menu button { text-align: left; grid-template-columns: minmax(0, 1fr); }
+html[data-ah-page] .ah-controls .export-menu { position: absolute; top: calc(100% + 8px); right: 0; left: auto; bottom: auto; width: min(360px, calc(100vw - 48px)); max-height: calc(100dvh - 160px); overflow: auto; }
+html[data-ah-page] .ah-controls .export-menu button { display: grid; min-height: 36px; padding: 6px 10px; text-align: left; grid-template-columns: minmax(0, 1fr); }
+html[data-ah-page] .ah-controls .export-menu button:disabled { display: none; }
+html[data-ah-page] .ah-controls .export-menu-section:not(:has(button:not([hidden]):not(:disabled))) { display: none; }
 html[data-ah-page="explainer"] .am-head { padding-right: 0; }
 html[data-ah-page="explainer"] .am-toolbar { display: none !important; }
 html[data-ah-page="diagram"] .header { padding-right: 0 !important; }
@@ -224,8 +215,9 @@ html[data-ah-page][data-present="true"]:not([data-embed="true"]) .diagram-contai
 @media (max-width: 600px) {
   html[data-ah-page] .ah-controls { gap: 8px; }
   .ah-controls nav { width: 100%; }
-  html[data-ah-page] .ah-controls :is(nav a, summary, button) { font-size: 13px; padding: 9px 10px; }
+  html[data-ah-page] .ah-controls :is(nav a, summary, button) { font-size: 13px; padding: 6px 10px; }
   .ah-controls .ah-settings-panel { max-height: calc(100dvh - 220px); }
+  html[data-ah-page] .ah-controls .export-menu { max-height: calc(100dvh - 220px); }
 }
 @media print { html[data-ah-page] .ah-controls { display: none !important; } }
 `;
@@ -240,7 +232,6 @@ export function sharedControls(presentation, kind) {
     ${kind === 'diagram' ? '<button id="ah-exit" type="button" hidden>通常表示に戻る</button>' : ''}
     <details id="ah-display"><summary>表示設定 ▾</summary><div class="ah-settings-panel">
       <label for="ah-mode">明暗<select id="ah-mode"><option value="auto">自動</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label>
-      <label for="ah-design">デザイン<select id="ah-design"><option value="standard">標準</option><option value="blueprint">図面</option></select></label>
       ${kind === 'diagram' ? '<button id="ah-present" type="button" aria-pressed="false">図に集中</button><button id="ah-motion" type="button" hidden>動きを止める</button>' : ''}
     </div></details>
     ${kind === 'diagram' ? '<div id="ah-output"></div>' : '<details id="ah-output"><summary>コピー・出力 ▾</summary><div class="ah-settings-panel"><button id="ah-copy" type="button">原稿をコピー</button></div></details>'}

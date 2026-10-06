@@ -15,53 +15,54 @@ export async function verifyViewControls({ browser, page, folder, evidence, conf
   const openSettings = async () => {
     if (!await page.locator('#ah-display').evaluate(n => n.open)) await page.locator('#ah-display summary').click();
   };
-  const expectState = async (mode, design) => {
+  const expectState = async (mode) => {
     await settle();
     check(await page.getAttribute('html', 'data-ah-mode') === mode, `Expected shared mode ${mode}`);
-    check(await page.getAttribute('html', 'data-ah-design') === design, `Expected shared design ${design}`);
+    check(await page.locator('#ah-design').count() === 0, 'Removed design selector still present');
+    check(!new URL(page.url()).searchParams.has('viewDesign'), 'Legacy design remains in URL');
+    const diagramPage = await page.getAttribute('html', 'data-ah-page') === 'diagram';
+    check(await page.getAttribute('html', diagramPage ? 'data-preset' : 'data-theme') === (diagramPage ? 'classic' : 'shadcn'), 'Legacy design changed standard presentation');
   };
   result.controls = { stages: [], persistence: [], exports: [] };
   await page.goto(main);
   await settle();
   check(!await page.locator('.am-toolbar').isVisible(), 'Legacy explanation toolbar still visible');
   await openSettings();
-  check((await page.locator('#ah-design option').allTextContents()).join(',') === '標準,図面', 'Unexpected designs');
+  check(await page.locator('#ah-design').count() === 0, 'Unexpected design selector');
   await page.locator('#ah-mode').selectOption('dark');
-  await page.locator('#ah-design').selectOption('blueprint');
   await page.reload();
-  await expectState('dark', 'blueprint');
+  await expectState('dark');
   await page.locator('.ah-detail-link').click();
-  await expectState('dark', 'blueprint');
+  await expectState('dark');
   check(await page.getAttribute('html', 'data-theme') === 'dark', 'Diagram did not inherit dark mode');
-  check(await page.getAttribute('html', 'data-preset') === 'blueprint', 'Diagram did not inherit design');
+  check(await page.getAttribute('html', 'data-preset') === 'classic', 'Diagram did not use standard design');
   await page.reload();
-  await expectState('dark', 'blueprint');
+  await expectState('dark');
   await openSettings();
   await page.locator('#ah-mode').selectOption('light');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expectState('light', 'blueprint');
+  await expectState('light');
   check(await page.getAttribute('html', 'data-theme') === 'light', 'Explicit light mode followed system dark');
   await page.locator('#ah-mode').selectOption('dark');
   await page.emulateMedia({ colorScheme: 'light' });
-  await expectState('dark', 'blueprint');
+  await expectState('dark');
   check(await page.getAttribute('html', 'data-theme') === 'dark', 'Explicit dark mode followed system light');
   result.controls.persistence.push('explicit mode survives system changes');
   await page.locator('.ah-return').click();
-  await expectState('dark', 'blueprint');
+  await expectState('dark');
   check(new URL(page.url()).hash === new URL(config.backHref, main).hash, 'Return fragment lost');
   result.controls.persistence.push('reload and round trip');
 
   await openSettings();
   await page.locator('#ah-mode').selectOption('auto');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expectState('auto', 'blueprint');
+  await expectState('auto');
   const darkBackground = await page.locator('body').evaluate(n => getComputedStyle(n).backgroundColor);
   await page.emulateMedia({ colorScheme: 'light' });
   await settle();
   check(await page.locator('body').evaluate(n => getComputedStyle(n).backgroundColor) !== darkBackground, 'Automatic explainer mode ignores system changes');
-  await page.locator('#ah-design').selectOption('standard');
   await page.locator('.ah-detail-link').click();
-  await expectState('auto', 'standard');
+  await expectState('auto');
   await page.emulateMedia({ colorScheme: 'dark' });
   await settle();
   check(await page.getAttribute('html', 'data-theme') === 'dark', 'Automatic diagram mode ignores system changes');
@@ -69,15 +70,27 @@ export async function verifyViewControls({ browser, page, folder, evidence, conf
   await settle();
   check(await page.getAttribute('html', 'data-theme') === 'light', 'Automatic diagram mode stays dark');
   await page.keyboard.press('t');
-  await expectState('dark', 'standard');
-  for (const design of ['blueprint', 'standard', 'blueprint', 'standard']) {
+  await expectState('dark');
+  for (let i = 0; i < 4; i++) {
     await page.keyboard.press('s');
-    await expectState('dark', design);
+    await expectState('dark');
   }
-  check(await page.locator('[data-preset-value="signal-flow"], [data-preset-value="editorial"]').count() === 0, 'Removed presets still available');
-  result.controls.persistence.push('system preference and T/S shortcuts');
+  check(await page.locator('[data-preset-value="signal-flow"], [data-preset-value="blueprint"], [data-preset-value="editorial"]').count() === 0, 'Removed presets still available');
+  await page.keyboard.press('?');
+  check(await page.locator('#diagram-guide').isVisible(), 'Diagram guide did not open');
+  check(!await page.locator('.diagram-guide-shortcuts').innerText().then(text => /\bS\b/.test(text)), 'Guide advertises removed style shortcut');
+  await page.keyboard.press('s');
+  check(await page.locator('#diagram-guide').isVisible(), 'Removed S shortcut still closes guide');
+  await page.keyboard.press('Escape');
+  await page.evaluate(({ mainFile, diagramFile }) => {
+    const key = 'ah-view:' + new URL('.', location.href).href + ':' + mainFile + ':' + diagramFile;
+    localStorage.setItem(key, JSON.stringify({ mode: 'dark', design: 'blueprint' }));
+  }, { mainFile: config.backHref.split('#')[0], diagramFile: config.diagramHref.split('#')[0] });
+  await page.goto(diagram + '?viewDesign=blueprint');
+  await expectState('dark');
+  result.controls.persistence.push('system preference, T shortcut, removed S shortcut and legacy design settings');
 
-  for (const width of [1440, 1280, 986, 790, 760, 552, 390, 320]) {
+  for (const width of [1440, 1280, 986, 790, 760, 721, 552, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(diagram + '?viewMode=light&viewDesign=standard');
     await settle();
@@ -139,17 +152,27 @@ export async function verifyViewControls({ browser, page, folder, evidence, conf
   await openSettings();
   await page.locator('#btn-export').click();
   check(!await page.locator('#ah-display').evaluate(n => n.open), 'Output and settings overlap');
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 721, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await settle();
+    if (!await page.locator('#export-menu').isVisible()) await page.locator('#btn-export').click();
     const menu = await page.locator('#export-menu').boundingBox();
     check(menu.x >= 0 && menu.x + menu.width <= width + 1, `Export menu outside viewport at ${width}`);
+    check(menu.y >= 0 && menu.y + menu.height <= 901, `Export menu outside viewport height at ${width}`);
     check(await page.locator('#export-menu button strong').evaluateAll(nodes => nodes.filter(n => n.closest('button').getBoundingClientRect().height > 0).every(n => {
       const r = n.getBoundingClientRect();
       return r.width > 16 && r.height > 8;
     })), `Export format labels collapsed at ${width}`);
+    check(await page.locator('#export-menu button:disabled').evaluateAll(nodes => nodes.every(n => n.getBoundingClientRect().height === 0)), `Unavailable exports visible at ${width}`);
     await page.mouse.move(0, 0);
     await page.screenshot({ path: path.join(evidence, `common-output-${width}.png`) });
+  }
+  for (const [width, height] of [[390, 844], [844, 390], [320, 568]]) {
+    await page.setViewportSize({ width, height });
+    await settle();
+    if (!await page.locator('#export-menu').isVisible()) await page.locator('#btn-export').click();
+    const menu = await page.locator('#export-menu').boundingBox();
+    check(menu.x >= 0 && menu.x + menu.width <= width + 1 && menu.y >= 0 && menu.y + menu.height <= height + 1, `Export menu outside ${width}x${height} viewport`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   const downloadSvg = page.waitForEvent('download');
@@ -178,6 +201,20 @@ export async function verifyViewControls({ browser, page, folder, evidence, conf
   result.controls.exports.push('source copy');
   await page.keyboard.press('Escape');
   await page.screenshot({ path: path.join(evidence, 'common-header-1440.png') });
+  await page.setViewportSize({ width: 721, height: 884 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: path.join(evidence, 'common-header-721.png') });
+  const alignment = await page.locator('.ah-controls :is(nav a, summary, #btn-export)').evaluateAll(nodes => nodes.map(n => {
+    const box = n.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(n);
+    const text = range.getBoundingClientRect();
+    return { label: n.textContent, height: box.height, offset: (text.top + text.bottom - box.top - box.bottom) / 2 };
+  }));
+  check(alignment.every(n => n.height <= 40 && Math.abs(n.offset) <= 3), 'Header text is not vertically centered in compact controls');
+  result.controls.headerAlignment = alignment;
+  await openSettings();
+  await page.screenshot({ path: path.join(evidence, 'common-settings-721.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await openSettings();
   await page.screenshot({ path: path.join(evidence, 'common-settings-390.png') });
@@ -192,16 +229,15 @@ export async function verifyViewControls({ browser, page, folder, evidence, conf
     await isolated.waitForSelector('html[data-ah-ready="true"]');
     await isolated.locator('#ah-display summary').click();
     await isolated.locator('#ah-mode').selectOption('dark');
-    await isolated.locator('#ah-design').selectOption('blueprint');
     await isolated.reload();
     await isolated.waitForSelector('html[data-ah-ready="true"]');
     check(await isolated.getAttribute('html', 'data-ah-mode') === 'dark', 'Blocked storage loses reload state');
     await isolated.locator('.ah-detail-link').click();
     await isolated.waitForSelector('html[data-ah-ready="true"]');
-    check(await isolated.getAttribute('html', 'data-ah-mode') === 'dark' && await isolated.getAttribute('html', 'data-ah-design') === 'blueprint', 'Blocked storage loses navigation state');
+    check(await isolated.getAttribute('html', 'data-ah-mode') === 'dark' && await isolated.getAttribute('html', 'data-preset') === 'classic', 'Blocked storage loses navigation state');
     await isolated.locator('.ah-return').click();
     await isolated.waitForSelector('html[data-ah-ready="true"]');
-    check(await isolated.getAttribute('html', 'data-ah-design') === 'blueprint', 'Blocked storage loses return state');
+    check(await isolated.getAttribute('html', 'data-ah-mode') === 'dark', 'Blocked storage loses return state');
     result.controls.persistence.push('storage unavailable');
   } finally { await blocked.close(); }
   await page.goto(diagram);
